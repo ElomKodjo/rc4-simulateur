@@ -65,6 +65,7 @@ button:hover{border-color:var(--accent);}
 .wt{stroke:var(--fg);stroke-width:2;}
 .txt{fill:var(--fg);font-size:17px;}
 .txt.m{fill:var(--muted);}
+.halo{paint-order:stroke;stroke:var(--card);stroke-width:5px;stroke-linejoin:round;}
 .lab1{fill:var(--c1);font-size:16px;font-weight:600;}
 .lab2{fill:var(--c2);font-size:16px;font-weight:600;}
 .grab{cursor:grab;touch-action:none;fill:transparent;}
@@ -75,7 +76,7 @@ button:hover{border-color:var(--accent);}
 <body>
 <div class="wrap">
   <h1>RC-4 · Simulateur d'équilibre à 2 câbles</h1>
-  <p class="sub">Même modèle que <code>surface_equilibre_rc4.py</code> (PFS : forces + moment en G). Saisissez L₁ et L₂, ou faites glisser la plateforme dans le schéma.</p>
+  <p class="sub">Même modèle que <code>surface_equilibre_rc4.py</code> (PFS : forces + moment en G). Saisissez L₁ et L₂, ou Xm et Ym, ou faites glisser la plateforme dans le schéma.</p>
 
   <section class="card controls">
     <div class="field">
@@ -86,14 +87,20 @@ button:hover{border-color:var(--accent);}
       <label for="L2">L₂ (mm)</label>
       <div class="row"><input id="L2" type="number" step="0.1" min="100" max="1100"><input id="L2r" type="range" min="150" max="1000" step="1" aria-label="L2"></div>
     </div>
+    <div class="field">
+      <label for="X">Xm (mm)</label>
+      <div class="row"><input id="X" type="number" step="0.1"><input id="Xr" type="range" min="-50" max="550" step="1" aria-label="Xm"></div>
+    </div>
+    <div class="field">
+      <label for="Y">Ym (mm)</label>
+      <div class="row"><input id="Y" type="number" step="0.1"><input id="Yr" type="range" min="50" max="600" step="1" aria-label="Ym"></div>
+    </div>
     <div>
       <div class="theta"><span id="theta">–</span>°<small id="thetaRad"></small></div>
       <div id="status" class="ok"></div>
     </div>
     <div>
       <div class="kv">
-        <span>Xm</span><span id="vx">–</span>
-        <span>Ym</span><span id="vy">–</span>
         <span>T₁</span><span id="vt1">–</span>
         <span>T₂</span><span id="vt2">–</span>
       </div>
@@ -110,7 +117,7 @@ button:hover{border-color:var(--accent);}
         </marker>
       </defs>
       <rect class="dom" x="-50" y="-600" width="600" height="550"/>
-      <text class="txt m" x="-44" y="-607" style="font-size:14px">zone simulée (surfaces 3D)</text>
+      <text class="txt m" x="550" y="-28" text-anchor="end" style="font-size:14px">zone simulée (surfaces 3D)</text>
       <line class="frame" x1="-175" y1="-775" x2="675" y2="-775"/>
       <line class="ax" x1="0" y1="0" x2="90" y2="0" marker-end="url(#arr)"/>
       <line class="ax" x1="0" y1="0" x2="0" y2="-90" marker-end="url(#arr)"/>
@@ -130,9 +137,9 @@ button:hover{border-color:var(--accent);}
       <circle id="anc1" class="anc1" r="6"/>
       <circle id="anc2" class="anc2" r="6"/>
       <circle id="gpt" class="g" r="4.5"/>
-      <text id="lab1" class="lab1" text-anchor="end"></text>
-      <text id="lab2" class="lab2"></text>
-      <text id="labth" class="txt"></text>
+      <text id="lab1" class="lab1 halo" text-anchor="start"></text>
+      <text id="lab2" class="lab2 halo" text-anchor="end"></text>
+      <text id="labth" class="txt halo"></text>
       <text id="labp" class="txt m">P</text>
       <circle id="hit" class="grab" r="52" tabindex="0" aria-label="Plateforme : glisser ou utiliser les flèches du clavier"/>
     </svg>
@@ -281,35 +288,38 @@ function render(){
   const circ=(id,x,y)=>{const e=$(id); e.setAttribute('cx',x.toFixed(2)); e.setAttribute('cy',sy(y));};
   circ('anc1',s.m1[0],s.m1[1]); circ('anc2',s.m2[0],s.m2[1]); circ('gpt',s.x,s.y); circ('hit',s.x,s.y);
   const txt=(id,x,y,str)=>{const e=$(id); e.setAttribute('x',x.toFixed(2)); e.setAttribute('y',sy(y)); e.textContent=str;};
-  txt('lab1', (P.A1[0]+s.m1[0])/2-12, (P.A1[1]+s.m1[1])/2, 'L₁ = '+s.L1.toFixed(1)+' mm');
-  txt('lab2', (P.A2[0]+s.m2[0])/2+12, (P.A2[1]+s.m2[1])/2, 'L₂ = '+s.L2.toFixed(1)+' mm');
+  txt('lab1', P.A1[0]+0.2*(s.m1[0]-P.A1[0])+12, P.A1[1]+0.2*(s.m1[1]-P.A1[1]), 'L₁ = '+s.L1.toFixed(1)+' mm');
+  txt('lab2', P.A2[0]+0.2*(s.m2[0]-P.A2[0])-12, P.A2[1]+0.2*(s.m2[1]-P.A2[1]), 'L₂ = '+s.L2.toFixed(1)+' mm');
   txt('labth', s.x+P.L+22, s.y-4, 'θ = '+deg(t).toFixed(1)+'°');
   txt('labp', s.x+8, s.y-88, 'P');
 }
 
-function updateReadouts(skipFields){
+function updateReadouts(skip){
   const s=state;
   $('theta').textContent=deg(s.theta).toFixed(2);
   $('thetaRad').textContent='('+s.theta.toFixed(4)+' rad)';
-  $('vx').textContent=s.x.toFixed(1)+' mm';
-  $('vy').textContent=s.y.toFixed(1)+' mm';
   $('vt1').textContent=s.T1.toFixed(2)+' N';
   $('vt2').textContent=s.T2.toFixed(2)+' N';
-  if(!skipFields){
+  if(skip!=='L'){
     $('L1').value=s.L1.toFixed(1); $('L2').value=s.L2.toFixed(1);
     $('L1r').value=s.L1.toFixed(0); $('L2r').value=s.L2.toFixed(0);
+  }
+  if(skip!=='XY'){
+    $('X').value=s.x.toFixed(1); $('Y').value=s.y.toFixed(1);
+    $('Xr').value=s.x.toFixed(0); $('Yr').value=s.y.toFixed(0);
   }
   setStatus('Équilibre statique valide (T₁ et T₂ > 0)', true);
 }
 
-function applyState(s, skipFields){
-  state=s; render(); updateReadouts(skipFields); schedulePlots();
+// skip : 'L' ou 'XY' = champ que l'utilisateur est en train de saisir (on ne le réécrit pas)
+function applyState(s, skip){
+  state=s; render(); updateReadouts(skip); schedulePlots();
 }
 
 function setPose(x, y){
   const s=poseToState(x,y,state?state.theta:0);
   if(!s){ setStatus("Pas d'équilibre statique valide à cette position (tension négative ou géométrie impossible).", false); return false; }
-  applyState(s,false); return true;
+  applyState(s,null); return true;
 }
 
 function onLengths(src){
@@ -318,7 +328,16 @@ function onLengths(src){
   const s=lengthsToState(a,b,state?state.theta:0);
   if(!s){ $('theta').textContent='–'; setStatus("Pas d'équilibre statique pour ces longueurs (câbles incompatibles ou tension négative).", false); return; }
   $('L1r').value=Math.round(a); $('L2r').value=Math.round(b);
-  applyState(s,true);
+  applyState(s,'L');
+}
+
+function onXY(){
+  const x=parseFloat($('X').value), y=parseFloat($('Y').value);
+  if(!Number.isFinite(x) || !Number.isFinite(y)){ setStatus('Saisir Xm et Ym.', false); return; }
+  const s=poseToState(x,y,state?state.theta:0);
+  if(!s){ $('theta').textContent='–'; setStatus("Pas d'équilibre statique valide à cette position (tension négative ou géométrie impossible).", false); return; }
+  $('Xr').value=Math.round(x); $('Yr').value=Math.round(y);
+  applyState(s,'XY');
 }
 
 // ---------- Glisser la plateforme ----------
@@ -350,6 +369,11 @@ $('L1').addEventListener('input', ()=>onLengths('L1'));
 $('L2').addEventListener('input', ()=>onLengths('L2'));
 $('L1r').addEventListener('input', ()=>{ $('L1').value=$('L1r').value; onLengths('L1'); });
 $('L2r').addEventListener('input', ()=>{ $('L2').value=$('L2r').value; onLengths('L2'); });
+// ---------- Champs Xm / Ym ----------
+$('X').addEventListener('input', onXY);
+$('Y').addEventListener('input', onXY);
+$('Xr').addEventListener('input', ()=>{ $('X').value=$('Xr').value; onXY(); });
+$('Yr').addEventListener('input', ()=>{ $('Y').value=$('Yr').value; onXY(); });
 $('reset').addEventListener('click', ()=>{ state=null; setPose(150,400); });
 
 // ---------- Graphes 3D (Plotly) ----------
