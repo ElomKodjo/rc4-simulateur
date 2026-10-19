@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RC-4 · Autocalibration à 2 ou 3 poses</title>
+<style>
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --bg:#f4f6f8; --card:#ffffff; --fg:#1a2027; --muted:#5c6773; --line:#d5dbe2; --grid:#e3e8ee;
+  --c1:#2563eb; --c2:#ea580c; --plat:#dbe4ee; --ok:#15803d; --bad:#b91c1c; --warn:#b45309; --accent:#2563eb;
+  --p1:#7c3aed; --p2:#059669; --p3:#db2777;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1217; --card:#171d24; --fg:#e8edf2; --muted:#9aa7b4; --line:#2b3540; --grid:#27303a;
+    --c1:#60a5fa; --c2:#fb923c; --plat:#2c3947; --ok:#4ade80; --bad:#f87171; --warn:#fbbf24; --accent:#60a5fa;
+    --p1:#a78bfa; --p2:#34d399; --p3:#f472b6;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1217; --card:#171d24; --fg:#e8edf2; --muted:#9aa7b4; --line:#2b3540; --grid:#27303a;
+  --c1:#60a5fa; --c2:#fb923c; --plat:#2c3947; --ok:#4ade80; --bad:#f87171; --warn:#fbbf24; --accent:#60a5fa;
+  --p1:#a78bfa; --p2:#34d399; --p3:#f472b6;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px);}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+.wrap{max-width:1180px;margin:0 auto;padding:16px;}
+h1{font-size:1.35rem;margin:4px 0 2px;}
+h2{font-size:1rem;margin:0 0 8px;font-weight:600;}
+.sub{color:var(--muted);margin:0 0 14px;font-size:.92rem;}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px;}
+.mt{display:grid;grid-template-columns:minmax(150px,1.3fr) repeat(3,minmax(84px,1fr));gap:8px 12px;align-items:center;}
+.mt .hd{color:var(--muted);font-size:.85rem;font-weight:600;}
+.mt label{font-weight:600;display:flex;align-items:center;gap:8px;}
+.dot{display:inline-block;width:12px;height:12px;border-radius:3px;flex:none;}
+input[type=number]{width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--line);border-radius:8px;
+  background:var(--bg);color:var(--fg);font:inherit;}
+input[type=number]:disabled{opacity:.45;}
+input[type=checkbox]{accent-color:var(--accent);}
+select{padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);font:inherit;}
+.row{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:end;margin-top:12px;}
+.row .f label{display:block;font-weight:600;margin-bottom:4px;font-size:.9rem;}
+.row .f input[type=number]{width:110px;}
+button{padding:7px 14px;border:1px solid var(--line);border-radius:8px;background:var(--bg);
+  color:var(--fg);font:inherit;cursor:pointer;}
+button:hover{border-color:var(--accent);}
+.note{color:var(--muted);font-size:.85rem;margin:6px 2px 0;}
+.ok{color:var(--ok);} .bad{color:var(--bad);} .warn{color:var(--warn);}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:.9rem;}
+th,td{padding:4px 8px;text-align:right;border-bottom:1px solid var(--line);}
+th:first-child,td:first-child{text-align:left;}
+th{color:var(--muted);font-weight:600;}
+.tw{overflow-x:auto;}
+.msg{margin:0 0 8px;font-weight:600;}
+#plot{width:100%;display:block;cursor:crosshair;}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:.85rem;color:var(--muted);margin-top:6px;}
+.legend span{display:inline-flex;align-items:center;gap:6px;}
+#robot{width:100%;height:auto;display:block;max-height:78vh;}
+.dom{fill:none;stroke:var(--muted);stroke-width:1.2;stroke-dasharray:6 5;opacity:.7;}
+.frame{stroke:var(--muted);stroke-width:7;stroke-linecap:round;opacity:.45;}
+.pulley{fill:var(--card);stroke:var(--fg);stroke-width:2;}
+.ax{stroke:var(--muted);stroke-width:1.4;}
+.txt{fill:var(--fg);font-size:16px;}
+.txt.m{fill:var(--muted);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>RC-4 · Autocalibration à 2 ou 3 poses</h1>
+  <p class="sub">Entrez l'inclinaison θ mesurée à la pose 1, puis, après chaque déplacement, la variation de longueur des câbles (ΔL₁, ΔL₂, lue sur les enrouleurs) et l'inclinaison mesurée. La page cherche les longueurs absolues (L₁, L₂) de la pose 1 et les positions compatibles.</p>
+
+  <section class="card">
+    <h2>Mesures</h2>
+    <div class="mt">
+      <span class="hd"></span><span class="hd">ΔL₁ (mm)</span><span class="hd">ΔL₂ (mm)</span><span class="hd">θ mesuré (°)</span>
+      <label><span class="dot" style="background:var(--p1)"></span>Pose 1 (référence)</label>
+      <span class="note" style="margin:0">0</span><span class="note" style="margin:0">0</span>
+      <input id="th1" type="number" step="0.01" aria-label="theta 1">
+      <label><span class="dot" style="background:var(--p2)"></span>Pose 2</label>
+      <input id="d1_2" type="number" step="0.1" aria-label="delta L1 pose 2">
+      <input id="d2_2" type="number" step="0.1" aria-label="delta L2 pose 2">
+      <input id="th2" type="number" step="0.01" aria-label="theta 2">
+      <label><input id="use3" type="checkbox"><span class="dot" style="background:var(--p3)"></span>Pose 3 (option)</label>
+      <input id="d1_3" type="number" step="0.1" aria-label="delta L1 pose 3" disabled>
+      <input id="d2_3" type="number" step="0.1" aria-label="delta L2 pose 3" disabled>
+      <input id="th3" type="number" step="0.01" aria-label="theta 3" disabled>
+    </div>
+    <div class="row">
+      <div class="f"><label for="sig">Incertitude IMU σ (°)</label><input id="sig" type="number" step="0.05" min="0.01" value="0.3"></div>
+      <button id="clear" type="button">Effacer les mesures</button>
+    </div>
+    <p class="note">Les ΔL sont comptés depuis la pose 1, sur la longueur affichée par l'interface du robot (câble depuis le haut de la poulie : arc + brin droit) ; positif = câble plus long qu'à la pose 1. θ = 0 quand la plateforme est horizontale, θ &gt; 0 quand son côté droit monte (sens trigonométrique), dans le plan du schéma ci-dessous. Si votre IMU a l'autre convention de signe, inversez θ.</p>
+  </section>
+
+  <section class="card">
+    <h2>Simulation d'un essai (pour tester la méthode)</h2>
+    <div class="row" style="margin-top:0">
+      <div class="f"><label for="sx">x₁ vrai (mm)</label><input id="sx" type="number" step="1" value="150"></div>
+      <div class="f"><label for="sy">y₁ vrai (mm)</label><input id="sy" type="number" step="1" value="400"></div>
+      <div class="f"><label><input id="noise" type="checkbox"> ajouter un bruit de σ</label></div>
+      <button id="sim" type="button">Générer les θ pour ces ΔL</button>
+    </div>
+    <p class="note" id="simmsg">Fixe une position « vraie », calcule les θ que mesurerait l'IMU pour les ΔL saisis ci-dessus, et affiche la vérité (✕) pour voir si la méthode la retrouve.</p>
+  </section>
+
+  <section class="card">
+    <h2>Résultat</h2>
+    <div id="boot" class="note">Calcul de la table d'équilibre…</div>
+    <div id="result"></div>
+  </section>
+
+  <section class="card">
+    <h2>Lignes de niveau dans le plan (L₁, L₂) de la pose 1</h2>
+    <div class="row" style="margin:0 0 8px">
+      <div class="f"><label for="view">Vue</label>
+        <select id="view"><option value="full">complète</option><option value="150">±150 mm autour de la solution</option><option value="60">±60 mm</option><option value="20">±20 mm</option></select></div>
+    </div>
+    <canvas id="plot" aria-label="Lignes de niveau de theta dans le plan L1 L2"></canvas>
+    <div class="legend" id="legend"></div>
+    <div class="note" id="hover">Survolez le graphe pour lire L₁, L₂ et les écarts de θ.</div>
+  </section>
+
+  <section class="card">
+    <h2>Positions possibles sur le robot</h2>
+    <svg id="robot" viewBox="-250 -850 1000 870" role="img" aria-label="Positions possibles de la plateforme">
+      <rect class="dom" x="-50" y="-600" width="600" height="550"/>
+      <text class="txt m" x="-44" y="-607" style="font-size:14px">zone simulée</text>
+      <line class="frame" x1="-175" y1="-775" x2="675" y2="-775"/>
+      <line class="ax" x1="0" y1="0" x2="90" y2="0"/><line class="ax" x1="0" y1="0" x2="0" y2="-90"/>
+      <text class="txt m" x="96" y="6">X</text><text class="txt m" x="-6" y="-98" text-anchor="middle">Y</text>
+      <circle class="pulley" cx="-175" cy="-775" r="15"/><circle class="pulley" cx="675" cy="-775" r="15"/>
+      <text class="txt" x="-175" y="-803" text-anchor="middle">A₁</text><text class="txt" x="675" y="-803" text-anchor="middle">A₂</text>
+      <g id="dyn"></g>
+    </svg>
+    <p class="note">Les nuages de points montrent, pour chaque pose, les positions compatibles avec les mesures (zone de confiance à 95 %). Les plateformes tracées sont celles de la meilleure solution.</p>
+  </section>
+</div>
+
+<script>
+// ==== PHYSICS START ====
+// Modèle constructeur : poulies de rayon rp, câble tangent à la poulie.
+// Longueur d'interface L = chemin du câble depuis le HAUT de la poulie : arc + brin droit tangent.
+const P = {L:50, H:25, rp:15, W:1.2*9.81, A1:[-175,775], A2:[675,775]};
+const TWO_PI=2*Math.PI;
+function rot(v,a){ const c=Math.cos(a), s=Math.sin(a); return [v[0]*c-v[1]*s, v[0]*s+v[1]*c]; }
+// angle enroulé entre l'arrivée du câble (horizontale, au sommet de la poulie) et la tangente de sortie
+function wrapAngle(o, psi, w){
+  const g=Math.atan2(o[1],o[0]);
+  let a=(w>0)?(g-psi):(psi-g);
+  a%=TWO_PI; if(a<0) a+=TWO_PI;
+  return a;
+}
+// Géométrie d'une pose (x,y,theta) : ancrages, brins droits, arcs, longueurs d'interface et de réglet
+function geometry(x, y, t){
+  const c=Math.cos(t), s=Math.sin(t);
+  const r=[[-P.L*c-P.H*s, -P.L*s+P.H*c],[P.L*c-P.H*s, P.L*s+P.H*c]];
+  const A=[P.A1,P.A2], W=[-1,1], PSI=[0,Math.PI], out=[];
+  for(let i=0;i<2;i++){
+    const m=[x+r[i][0], y+r[i][1]], v=[m[0]-A[i][0], m[1]-A[i][1]], D=Math.hypot(v[0],v[1]);
+    if(D<=P.rp) return null;
+    const al=Math.asin(P.rp/D), o=rot([v[0]/D, v[1]/D], W[i]*al);   // sens de parcours : poulie -> plateforme
+    const st=Math.sqrt(D*D-P.rp*P.rp), phi=wrapAngle(o,PSI[i],W[i]);
+    const top=[A[i][0], A[i][1]+P.rp];
+    out.push({r:r[i], m, D, o, s:st, phi, L:st+P.rp*phi, ruler:Math.hypot(m[0]-top[0], m[1]-top[1])});
+  }
+  return out;
+}
+function statics(x, y, t){
+  const G=geometry(x,y,t); if(!G) return null;
+  const g1=G[0], g2=G[1], u1=[-g1.o[0],-g1.o[1]], u2=[-g2.o[0],-g2.o[1]];
+  const det=u1[0]*u2[1]-u2[0]*u1[1];
+  if(Math.abs(det)<1e-9) return null;
+  const T1=-u2[0]*P.W/det, T2=u1[0]*P.W/det;
+  const F1=[T1*u1[0], T1*u1[1]], F2=[T2*u2[0], T2*u2[1]];
+  const M=g1.r[0]*F1[1]-g1.r[1]*F1[0]+g2.r[0]*F2[1]-g2.r[1]*F2[0];
+  return {M, T1, T2, D1:g1.D, D2:g2.D, m1:g1.m, m2:g2.m, x, y, theta:t, L1:g1.L, L2:g2.L, R1:g1.ruler, R2:g2.ruler};
+}
+
+// MGI explicite (rayons D_i = distance centre de poulie -> ancrage) : (x,y) du centre G pour theta donné
+function mgi(theta, D1, D2){
+  const c=Math.cos(theta), s=Math.sin(theta), {L,H}=P;
+  const Xc1=P.A1[0]+L*c+H*s, Yc1=P.A1[1]+L*s-H*c;
+  const Xc2=P.A2[0]-L*c+H*s, Yc2=P.A2[1]-L*s-H*c;
+  const al=(Yc1-Yc2)/(Xc2-Xc1);
+  const be=(D1*D1-D2*D2+Xc2*Xc2-Xc1*Xc1+Yc2*Yc2-Yc1*Yc1)/(2*(Xc2-Xc1));
+  const b=al*(be-Xc1)-Yc1, a=1+al*al;
+  const c0=(be-Xc1)*(be-Xc1)+Yc1*Yc1-D1*D1;
+  const disc=b*b-a*c0;
+  if(disc<0) return null;
+  const y=(-b-Math.sqrt(disc))/a;
+  return [al*y+be, y];
+}
+// Position (x,y) pour theta et longueurs d'interface (L1,L2) donnés : l'arc dépend peu de la pose,
+// on itère (point fixe) : arc -> brins droits -> MGI -> nouvel arc
+function poseAtTheta(t, L1, L2){
+  let a1=1.0, a2=1.0, p=null;
+  for(let it=0; it<40; it++){
+    const s1=L1-P.rp*a1, s2=L2-P.rp*a2;
+    if(s1<=0 || s2<=0) return null;
+    p=mgi(t, Math.hypot(s1,P.rp), Math.hypot(s2,P.rp)); if(!p) return null;
+    const G=geometry(p[0],p[1],t); if(!G) return null;
+    const d=Math.max(Math.abs(G[0].phi-a1), Math.abs(G[1].phi-a2));
+    a1=G[0].phi; a2=G[1].phi;
+    if(d<1e-12) break;
+  }
+  return p;
+}
+
+function bisect(fn, a, b){
+  let fa=fn(a).M;
+  for(let i=0;i<60;i++){
+    const m=(a+b)/2, sm=fn(m);
+    if(!sm) break;
+    if(fa*sm.M<=0) b=m; else {a=m; fa=sm.M;}
+  }
+  return fn((a+b)/2);
+}
+// Racines valides (T1,T2>0) de M(theta)=0 ; fn(theta) -> état ou null
+function rootsOf(fn, n=240, lo=-1.25, hi=1.25){
+  const out=[]; let pt=null, ps=null;
+  for(let k=0;k<n;k++){
+    const t=lo+(hi-lo)*(k+0.5)/n, s=fn(t);
+    if(s && ps && ps.M*s.M<0){
+      const r=bisect(fn, pt, t);
+      if(r && r.T1>0 && r.T2>0) out.push(r);
+    }
+    pt=t; ps=s;
+  }
+  return out;
+}
+function pick(list, prefer){
+  let best=null;
+  for(const r of list) if(best===null || Math.abs(r.theta-prefer)<Math.abs(best.theta-prefer)) best=r;
+  return best;
+}
+
+// Pose (x,y) -> theta, longueurs d'interface L1, L2, tensions
+function poseToState(x, y, prefer=0){
+  return pick(rootsOf(t=>statics(x,y,t)), prefer);
+}
+// Longueurs d'interface (L1,L2) -> theta, pose, tensions
+function lengthsToState(L1, L2, prefer=0, n=240){
+  const fn=t=>{const p=poseAtTheta(t,L1,L2); return p?statics(p[0],p[1],t):null;};
+  const s=pick(rootsOf(fn,n), prefer);
+  if(!s) return null;
+  s.L1=L1; s.L2=L2;
+  return s;
+}
+
+// ---- Commande 4 câbles (plateforme horizontale, theta = 0) <-> longueurs d'interface ----
+function commandLengths(x4, y4){
+  const G=geometry(x4,y4,0); if(!G) return null;
+  // les ancrages doivent rester sous les poulies (sinon on obtiendrait la position miroir)
+  if(G[0].m[1]>=P.A1[1]-P.rp || G[1].m[1]>=P.A2[1]-P.rp) return null;
+  return [G[0].L, G[1].L];
+}
+function commandOf(L1, L2){ return poseAtTheta(0, L1, L2); }
+function commandToState(x4, y4, prefer=0, n=240){
+  const L=commandLengths(x4,y4); if(!L) return null;
+  return lengthsToState(L[0],L[1],prefer,n);
+}
+// ==== PHYSICS END ====
+
+// ==== SOLVER START ====
+// Table de theta = g(L1,L2) sur un réseau, interpolée bilinéairement (recherche rapide).
+// L'affinage final de la solution utilise le modèle exact.
+const LMIN=150, LMAX=1050, STEP=10, N=Math.round((LMAX-LMIN)/STEP)+1;
+const G=new Float32Array(N*N).fill(NaN);
+let latticeReady=false;
+const ZONE={x0:-50,x1:550,y0:50,y1:600};
+const CHI2_95_2DOF=5.99;
+
+function thetaNewton(L1,L2,t0){
+  let t=t0;
+  for(let it=0;it<25;it++){
+    const p=poseAtTheta(t,L1,L2); if(!p) return NaN;
+    const s=statics(p[0],p[1],t); if(!s) return NaN;
+    const h=1e-5, p2=poseAtTheta(t+h,L1,L2); if(!p2) return NaN;
+    const s2=statics(p2[0],p2[1],t+h); if(!s2) return NaN;
+    const d=(s2.M-s.M)/h; if(!(Math.abs(d)>1e-9)) return NaN;
+    let dt=-s.M/d; dt=Math.max(-0.2,Math.min(0.2,dt)); t+=dt;
+    if(Math.abs(dt)<1e-11){
+      const q=poseAtTheta(t,L1,L2); const f=q?statics(q[0],q[1],t):null;
+      return (f&&f.T1>0&&f.T2>0)?t:NaN;
+    }
+  }
+  return NaN;
+}
+function latticeRow(i){
+  const b=LMIN+i*STEP; let prev=NaN;
+  for(let j=0;j<N;j++){
+    const a=LMIN+j*STEP; let th=NaN;
+    if(Number.isFinite(prev)) th=thetaNewton(a,b,prev);
+    if(!Number.isFinite(th)){ const s=lengthsToState(a,b,0,60); th=s?s.theta:NaN; }   // repli : balayage
+    G[i*N+j]=th; prev=th;
+  }
+}
+function gI(a,b){
+  const fx=(a-LMIN)/STEP, fy=(b-LMIN)/STEP;
+  if(!(fx>=0 && fy>=0 && fx<=N-1 && fy<=N-1)) return NaN;
+  const j=Math.min(Math.floor(fx),N-2), i=Math.min(Math.floor(fy),N-2);
+  const u=fx-j, v=fy-i;
+  return (G[i*N+j]*(1-u)+G[i*N+j+1]*u)*(1-v)+(G[(i+1)*N+j]*(1-u)+G[(i+1)*N+j+1]*u)*v;
+}
+function gE(a,b){ const s=lengthsToState(a,b,0); return s?s.theta:null; }
+
+// poses : [{d1,d2,th(rad)}], sig en rad
+function costAt(a,b,poses,sig,fn){
+  let C=0;
+  for(const p of poses){
+    const g=fn(a+p.d1,b+p.d2);
+    if(g===null || !Number.isFinite(g)) return Infinity;
+    const r=(g-p.th)/sig; C+=r*r;
+  }
+  return C;
+}
+function findCandidates(poses,sig,maxN=8){
+  const C=new Float64Array(N*N);
+  for(let i=0;i<N;i++) for(let j=0;j<N;j++) C[i*N+j]=costAt(LMIN+j*STEP,LMIN+i*STEP,poses,sig,gI);
+  const out=[];
+  for(let i=1;i<N-1;i++) for(let j=1;j<N-1;j++){
+    const c=C[i*N+j]; if(!Number.isFinite(c)) continue;
+    let ismin=true;
+    for(let di=-1;di<=1 && ismin;di++) for(let dj=-1;dj<=1;dj++){
+      if(di===0&&dj===0) continue;
+      if(C[(i+di)*N+j+dj]<c){ismin=false;break;}
+    }
+    if(ismin) out.push({a:LMIN+j*STEP,b:LMIN+i*STEP,c});
+  }
+  out.sort((p,q)=>p.c-q.c);
+  return out.slice(0,maxN);
+}
+
+// Gauss-Newton sur (a,b) avec le modèle exact
+function jac(a,b,poses,h=0.5){
+  const r=[],J=[];
+  for(const p of poses){
+    const g0=gE(a+p.d1,b+p.d2), ga1=gE(a+p.d1+h,b+p.d2), ga0=gE(a+p.d1-h,b+p.d2),
+          gb1=gE(a+p.d1,b+p.d2+h), gb0=gE(a+p.d1,b+p.d2-h);
+    if([g0,ga1,ga0,gb1,gb0].some(v=>v===null)) return null;
+    r.push(g0-p.th); J.push([(ga1-ga0)/(2*h),(gb1-gb0)/(2*h)]);
+  }
+  return {r,J};
+}
+function normalEq(J){
+  let A11=0,A12=0,A22=0;
+  for(const j of J){A11+=j[0]*j[0];A12+=j[0]*j[1];A22+=j[1]*j[1];}
+  return {A11,A12,A22,det:A11*A22-A12*A12};
+}
+function refine(a0,b0,poses,sig){
+  let a=a0,b=b0;
+  for(let it=0;it<30;it++){
+    const jr=jac(a,b,poses); if(!jr) return null;
+    const {A11,A12,A22,det}=normalEq(jr.J);
+    if(!(det>1e-9*A11*A22)) return null;
+    let g1=0,g2=0;
+    for(let k=0;k<jr.r.length;k++){g1+=jr.J[k][0]*jr.r[k];g2+=jr.J[k][1]*jr.r[k];}
+    let da=-(A22*g1-A12*g2)/det, db=-(-A12*g1+A11*g2)/det;
+    const nrm=Math.hypot(da,db); if(nrm>50){da*=50/nrm;db*=50/nrm;}
+    a+=da; b+=db;
+    if(nrm<1e-4) break;
+  }
+  const C=costAt(a,b,poses,sig,gE);
+  return Number.isFinite(C)?{a,b,C}:null;
+}
+function covariance(a,b,poses,sig){
+  const jr=jac(a,b,poses); if(!jr) return null;
+  const {A11,A12,A22,det}=normalEq(jr.J); if(!(det>1e-9*A11*A22)) return null;
+  const s2=sig*sig/det;                      // Sigma = sig^2 (J^T J)^-1
+  const S=[[A22*s2,-A12*s2],[-A12*s2,A11*s2]];
+  const h=0.5, f=(da,db)=>lengthsToState(a+da,b+db,0);
+  const pa1=f(h,0),pa0=f(-h,0),pb1=f(0,h),pb0=f(0,-h);
+  let sx=NaN,sy=NaN;
+  if(pa1&&pa0&&pb1&&pb0){
+    const Jp=[[(pa1.x-pa0.x)/(2*h),(pb1.x-pb0.x)/(2*h)],[(pa1.y-pa0.y)/(2*h),(pb1.y-pb0.y)/(2*h)]];
+    const v=(r)=>Jp[r][0]*(Jp[r][0]*S[0][0]+Jp[r][1]*S[1][0])+Jp[r][1]*(Jp[r][0]*S[0][1]+Jp[r][1]*S[1][1]);
+    sx=Math.sqrt(v(0)); sy=Math.sqrt(v(1));
+  }
+  return {sa:Math.sqrt(S[0][0]),sb:Math.sqrt(S[1][1]),sx,sy};
+}
+function solve(poses,sig){
+  const out=[];
+  if(poses.length<2) return {solutions:out};
+  for(const cd of findCandidates(poses,sig)){
+    const r=refine(cd.a,cd.b,poses,sig); if(!r) continue;
+    if(r.a<60||r.b<60||poses.some(p=>r.a+p.d1<60||r.b+p.d2<60)) continue;   // longueurs non physiques
+    if(out.some(o=>Math.hypot(o.a-r.a,o.b-r.b)<1.5)) continue;
+    const st=lengthsToState(r.a,r.b,0); if(!st) continue;
+    const perPose=poses.map(p=>lengthsToState(r.a+p.d1,r.b+p.d2,0));
+    if(perPose.some(s=>!s)) continue;
+    out.push({a:r.a,b:r.b,C:r.C,x:st.x,y:st.y,theta:st.theta,perPose,
+      inZone:st.x>=ZONE.x0&&st.x<=ZONE.x1&&st.y>=ZONE.y0&&st.y<=ZONE.y1,
+      cov:covariance(r.a,r.b,poses,sig)});
+  }
+  out.sort((p,q)=>(p.C+(p.inZone?0:20))-(q.C+(q.inZone?0:20)));
+  return {solutions:out};
+}
+// Points (a,b) de la zone de confiance 95 % autour de la meilleure solution
+function regionAround(best,poses,sig,half=150,st=2){
+  const lim=best.C+CHI2_95_2DOF, pts=[];
+  for(let da=-half;da<=half;da+=st) for(let db=-half;db<=half;db+=st){
+    const a=best.a+da,b=best.b+db;
+    if(costAt(a,b,poses,sig,gI)<=lim) pts.push([a,b]);
+  }
+  return pts;
+}
+// ==== SOLVER END ====
+
+// ================== Interface ==================
+const $=id=>document.getElementById(id);
+const rad=d=>d*Math.PI/180, deg=r=>r*180/Math.PI;
+const fmt=(v,n=1)=>Number.isFinite(v)?v.toFixed(n):'–';
+const num=id=>{const v=parseFloat($(id).value); return Number.isFinite(v)?v:NaN;};
+const num0=id=>{const v=num(id); return Number.isFinite(v)?v:0;};
+function css(n,fb){const v=getComputedStyle(document.documentElement).getPropertyValue(n).trim(); return v||fb;}
+function rgb(hex){const h=hex.replace('#',''); const f=h.length===3?h.split('').map(c=>c+c).join(''):h;
+  const v=[parseInt(f.slice(0,2),16),parseInt(f.slice(2,4),16),parseInt(f.slice(4,6),16)]; return v.some(Number.isNaN)?[136,136,136]:v;}
+
+let truth=null, lastView=null, lastCenter=[600,600], lastPoses=[], lastSig=0.005;
+
+function readInputs(){
+  const sigDeg=Math.max(0.01,num('sig')||0.3);
+  const poses=[];
+  const th1=num('th1');
+  if(Number.isFinite(th1)){
+    poses.push({d1:0,d2:0,th:rad(th1)});
+    const th2=num('th2');
+    if(Number.isFinite(th2)){
+      poses.push({d1:num0('d1_2'),d2:num0('d2_2'),th:rad(th2)});
+      if($('use3').checked){ const th3=num('th3'); if(Number.isFinite(th3)) poses.push({d1:num0('d1_3'),d2:num0('d2_3'),th:rad(th3)}); }
+    }
+  }
+  return {poses,sigDeg};
+}
+const okThreshold=K=>K<=2?0.05:3.84;
+
+function cloudsFor(region,poses){
+  const step=Math.max(1,Math.ceil(region.length/220));
+  return poses.map(p=>{
+    const out=[];
+    for(let i=0;i<region.length;i+=step){
+      const [a,b]=region[i], th=gI(a+p.d1,b+p.d2); if(!Number.isFinite(th)) continue;
+      const q=poseAtTheta(th,a+p.d1,b+p.d2); if(q) out.push(q);
+    }
+    return out;
+  });
+}
+
+function renderResult(res,poses,sigDeg){
+  const el=$('result'), K=poses.length;
+  if(K===0){ el.innerHTML='<p class="msg warn">Saisissez θ à la pose 1 et les mesures de la pose 2.</p>'; return; }
+  if(K===1){ el.innerHTML='<p class="msg warn">Une seule pose : θ₁ ne donne qu\'une courbe de niveau, donc une infinité de couples (L₁, L₂). Ajoutez la pose 2 (ΔL et θ₂).</p>'; return; }
+  const sols=res.solutions;
+  if(!sols.length){ el.innerHTML='<p class="msg bad">Aucune intersection trouvée. Vérifiez les signes (ΔL &gt; 0 = câble plus long, θ &gt; 0 = côté droit qui monte), les valeurs saisies et σ.</p>'; return; }
+  const thr=okThreshold(K), ok=sols.filter(s=>s.C<=thr&&s.inZone);
+  let msg;
+  if(sols[0].C>thr) msg=`<p class="msg warn">Aucune solution parfaitement compatible : meilleur compromis (C = ${fmt(sols[0].C,2)}). Mesures incohérentes entre elles, ou σ trop faible.</p>`;
+  else if(ok.length>=2) msg=`<p class="msg warn">Ambiguïté : ${ok.length} solutions compatibles dans la zone. Ajoutez une pose avec un déplacement différent (pose 3) pour trancher.</p>`;
+  else msg='<p class="msg ok">Solution unique compatible avec les mesures.</p>';
+  const b=sols[0], cv=b.cov;
+  const pm=(v,s)=>Number.isFinite(s)?`${fmt(v)} ± ${fmt(s)}`:fmt(v);
+  let h=msg+`<p>Longueurs à la pose 1 : <b>L₁ = ${pm(b.a,cv&&cv.sa)} mm</b>, <b>L₂ = ${pm(b.b,cv&&cv.sb)} mm</b> ; position : <b>x = ${pm(b.x,cv&&cv.sx)} mm</b>, <b>y = ${pm(b.y,cv&&cv.sy)} mm</b> (± = 1 écart-type pour σ = ${fmt(sigDeg,2)}°).</p>`;
+  h+='<div class="tw"><table><tr><th>Pose</th><th>L₁ (mm)</th><th>L₂ (mm)</th><th>x (mm)</th><th>y (mm)</th><th>θ modèle (°)</th><th>θ mesuré (°)</th><th>écart (°)</th></tr>';
+  b.perPose.forEach((s,k)=>{ h+=`<tr><td><span class="dot" style="background:var(--p${k+1})"></span> ${k+1}</td><td>${fmt(b.a+poses[k].d1)}</td><td>${fmt(b.b+poses[k].d2)}</td><td>${fmt(s.x)}</td><td>${fmt(s.y)}</td><td>${fmt(deg(s.theta),2)}</td><td>${fmt(deg(poses[k].th),2)}</td><td>${fmt(deg(s.theta-poses[k].th),2)}</td></tr>`; });
+  h+='</table></div>';
+  if(truth) h+=`<p class="note">Vérité simulée : L₁ = ${fmt(truth.a)}, L₂ = ${fmt(truth.b)}, x = ${fmt(truth.x)}, y = ${fmt(truth.y)} mm. Écart de la solution 1 : ΔL₁ = ${fmt(b.a-truth.a)}, ΔL₂ = ${fmt(b.b-truth.b)}, Δx = ${fmt(b.x-truth.x)}, Δy = ${fmt(b.y-truth.y)} mm.</p>`;
+  if(sols.length>1){
+    h+='<p class="note" style="margin-top:10px">Autres solutions trouvées (pose 1) :</p><div class="tw"><table><tr><th>N°</th><th>L₁ (mm)</th><th>L₂ (mm)</th><th>x (mm)</th><th>y (mm)</th><th>C</th><th>zone</th></tr>';
+    sols.slice(1).forEach((s,i)=>{ h+=`<tr><td>${i+2}</td><td>${fmt(s.a)}</td><td>${fmt(s.b)}</td><td>${fmt(s.x)}</td><td>${fmt(s.y)}</td><td>${fmt(s.C,2)}</td><td>${s.inZone?'dans':'hors'}</td></tr>`; });
+    h+='</table></div>';
+  }
+  el.innerHTML=h;
+}
+
+// ---------- Graphe des lignes de niveau (canvas) ----------
+function niceStep(r){const raw=r/6,p=Math.pow(10,Math.floor(Math.log10(raw))),m=raw/p; return (m<1.5?1:m<3.5?2:m<7.5?5:10)*p;}
+function currentView(res){
+  const mode=$('view').value;
+  if(mode==='full') return {a0:LMIN,a1:LMAX,b0:LMIN,b1:LMAX};
+  const half=parseFloat(mode), best=res.solutions[0];
+  if(best) lastCenter=[best.a,best.b];
+  const [ca,cb]=lastCenter;
+  return {a0:ca-half,a1:ca+half,b0:cb-half,b1:cb+half};
+}
+function drawPlot(res,poses,sig){
+  const cv=$('plot'); if(!cv) return;
+  const dpr=window.devicePixelRatio||1;
+  const cssW=Math.max(320,cv.clientWidth||640), cssH=Math.round(cssW*0.75);
+  cv.style.height=cssH+'px'; cv.width=Math.round(cssW*dpr); cv.height=Math.round(cssH*dpr);
+  const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,cssW,cssH);
+  const ml=58,mr=14,mt=10,mb=44, pw=cssW-ml-mr, ph=cssH-mt-mb;
+  const view=currentView(res); lastView={view,ml,mt,pw,ph};
+  const Wf=Math.max(2,Math.round(pw)), Hf=Math.max(2,Math.round(ph)), K=poses.length;
+  const cols=[rgb(css('--p1','#7c3aed')),rgb(css('--p2','#059669')),rgb(css('--p3','#db2777'))];
+  const fgc=rgb(css('--fg','#1a2027')), mutc=rgb(css('--muted','#5c6773'));
+  const r=poses.map(()=>new Float32Array(Wf*Hf));
+  for(let y=0;y<Hf;y++){
+    const b=view.b1-(y+0.5)/Hf*(view.b1-view.b0);
+    for(let x=0;x<Wf;x++){
+      const a=view.a0+(x+0.5)/Wf*(view.a1-view.a0);
+      for(let k=0;k<K;k++) r[k][y*Wf+x]=gI(a+poses[k].d1,b+poses[k].d2)-poses[k].th;
+    }
+  }
+  const off=document.createElement('canvas'); off.width=Wf; off.height=Hf;
+  const octx=off.getContext('2d'); const img=octx.createImageData(Wf,Hf), d=img.data;
+  const best=res.solutions[0], Climit=best?best.C+CHI2_95_2DOF:-1;
+  let R=0,Gc=0,B=0,A=0;
+  const over=(c,al)=>{const na=al+A*(1-al); R=(c[0]*al+R*A*(1-al))/na; Gc=(c[1]*al+Gc*A*(1-al))/na; B=(c[2]*al+B*A*(1-al))/na; A=na;};
+  for(let y=0;y<Hf;y++) for(let x=0;x<Wf;x++){
+    const idx=y*Wf+x; R=Gc=B=A=0;
+    let anyNaN=false, C=0;
+    for(let k=0;k<K;k++){ const v=r[k][idx]; if(Number.isNaN(v)){anyNaN=true;} else C+=(v/sig)*(v/sig); }
+    if(anyNaN) over(mutc,0.14);
+    else{
+      for(let k=0;k<K;k++) if(Math.abs(r[k][idx])<=sig) over(cols[k],0.30);
+      if(K>=2 && C<=Climit) over(fgc,0.16);
+    }
+    for(let k=0;k<K;k++){
+      const v=r[k][idx]; if(Number.isNaN(v)) continue;
+      const rr=x+1<Wf?r[k][idx+1]:NaN, rd=y+1<Hf?r[k][idx+Wf]:NaN;
+      if((!Number.isNaN(rr)&&v*rr<0)||(!Number.isNaN(rd)&&v*rd<0)) over(cols[k],0.95);
+    }
+    d[idx*4]=R; d[idx*4+1]=Gc; d[idx*4+2]=B; d[idx*4+3]=Math.round(A*255);
+  }
+  octx.putImageData(img,0,0); ctx.drawImage(off,ml,mt,pw,ph);
+  const ax=a=>ml+(a-view.a0)/(view.a1-view.a0)*pw, by=b=>mt+ph-(b-view.b0)/(view.b1-view.b0)*ph;
+  const fg=css('--fg','#1a2027'), mut=css('--muted','#5c6773'), grid=css('--grid','#e3e8ee');
+  ctx.font='12px system-ui,sans-serif'; ctx.lineWidth=1;
+  const sa=niceStep(view.a1-view.a0), sb=niceStep(view.b1-view.b0);
+  ctx.strokeStyle=grid; ctx.fillStyle=mut; ctx.textAlign='center'; ctx.textBaseline='top';
+  for(let a=Math.ceil(view.a0/sa)*sa;a<=view.a1;a+=sa){ const X=ax(a); ctx.globalAlpha=.5; ctx.beginPath(); ctx.moveTo(X,mt); ctx.lineTo(X,mt+ph); ctx.stroke(); ctx.globalAlpha=1; ctx.fillText(String(Math.round(a*100)/100),X,mt+ph+5); }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(let b=Math.ceil(view.b0/sb)*sb;b<=view.b1;b+=sb){ const Y=by(b); ctx.globalAlpha=.5; ctx.beginPath(); ctx.moveTo(ml,Y); ctx.lineTo(ml+pw,Y); ctx.stroke(); ctx.globalAlpha=1; ctx.fillText(String(Math.round(b*100)/100),ml-6,Y); }
+  ctx.strokeStyle=mut; ctx.strokeRect(ml,mt,pw,ph);
+  ctx.fillStyle=fg; ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillText('L₁ à la pose 1 (mm)',ml+pw/2,cssH-4);
+  ctx.save(); ctx.translate(14,mt+ph/2); ctx.rotate(-Math.PI/2); ctx.textBaseline='top'; ctx.fillText('L₂ à la pose 1 (mm)',0,0); ctx.restore();
+  res.solutions.slice(0,5).forEach((s,i)=>{
+    const X=ax(s.a),Y=by(s.b); if(X<ml||X>ml+pw||Y<mt||Y>mt+ph) return;
+    ctx.strokeStyle=fg; ctx.fillStyle=fg; ctx.lineWidth=i===0?2.5:1.5;
+    ctx.beginPath(); ctx.arc(X,Y,i===0?7:5,0,2*Math.PI); ctx.stroke();
+    ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillText(String(i+1),X+8,Y-5);
+  });
+  if(truth){ const X=ax(truth.a),Y=by(truth.b); if(X>=ml&&X<=ml+pw&&Y>=mt&&Y<=mt+ph){ ctx.strokeStyle=fg; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(X-6,Y-6); ctx.lineTo(X+6,Y+6); ctx.moveTo(X+6,Y-6); ctx.lineTo(X-6,Y+6); ctx.stroke(); } }
+  const lg=[];
+  for(let k=1;k<=K;k++) lg.push(`<span><i class="dot" style="background:var(--p${k})"></i>pose ${k} : θ = ${fmt(deg(poses[k-1].th),2)}° ± σ</span>`);
+  if(K>=2) lg.push('<span><i class="dot" style="background:var(--fg);opacity:.35"></i>zone de confiance 95 %</span>');
+  lg.push('<span>◯ solution (1 = meilleure)</span>'); if(truth) lg.push('<span>✕ vérité simulée</span>'); lg.push('<span><i class="dot" style="background:var(--muted);opacity:.3"></i>pas d\'équilibre</span>');
+  $('legend').innerHTML=lg.join('');
+}
+$('plot').addEventListener('mousemove',ev=>{
+  if(!lastView) return;
+  const cv=$('plot'), rc=cv.getBoundingClientRect();
+  const x=ev.clientX-rc.left, y=ev.clientY-rc.top, {view,ml,mt,pw,ph}=lastView;
+  if(x<ml||x>ml+pw||y<mt||y>mt+ph) return;
+  const a=view.a0+(x-ml)/pw*(view.a1-view.a0), b=view.b1-(y-mt)/ph*(view.b1-view.b0);
+  const parts=lastPoses.map((p,k)=>{const g=gI(a+p.d1,b+p.d2); return Number.isFinite(g)?`pose ${k+1} : ${fmt(deg(g-p.th),2)}°`:`pose ${k+1} : –`;});
+  $('hover').textContent=`L₁ = ${fmt(a)} mm, L₂ = ${fmt(b)} mm — écart θ(modèle) − θ(mesuré) : ${parts.join(' ; ')}`;
+});
+
+// ---------- Schéma du robot ----------
+function platformMarkup(st,k,dashed){
+  const t=st.theta,c=Math.cos(t),s=Math.sin(t);
+  const pts=[[-P.L,-P.H],[P.L,-P.H],[P.L,P.H],[-P.L,P.H]].map(([a,b])=>(st.x+a*c-b*s).toFixed(1)+','+(-(st.y+a*s+b*c)).toFixed(1)).join(' ');
+  const col=`var(--p${k+1})`;
+  let o=`<line x1="${P.A1[0]}" y1="${-P.A1[1]}" x2="${st.m1[0].toFixed(1)}" y2="${(-st.m1[1]).toFixed(1)}" style="stroke:${col};stroke-width:1.4;opacity:.55"/>`;
+  o+=`<line x1="${P.A2[0]}" y1="${-P.A2[1]}" x2="${st.m2[0].toFixed(1)}" y2="${(-st.m2[1]).toFixed(1)}" style="stroke:${col};stroke-width:1.4;opacity:.55"/>`;
+  o+=`<polygon points="${pts}" style="fill:${col};fill-opacity:.18;stroke:${col};stroke-width:2"/>`;
+  o+=`<text x="${(st.x+P.L+10).toFixed(1)}" y="${(-st.y+5).toFixed(1)}" style="fill:${col};font-size:15px;font-weight:600">P${k+1} · ${fmt(deg(t),1)}°</text>`;
+  return o;
+}
+function renderRobot(res,clouds){
+  let s='';
+  clouds.forEach((pts,k)=>{ for(const [x,y] of pts) s+=`<circle cx="${x.toFixed(1)}" cy="${(-y).toFixed(1)}" r="2.4" style="fill:var(--p${k+1});opacity:.35"/>`; });
+  const best=res.solutions[0];
+  if(best) best.perPose.forEach((st,k)=>{ s+=platformMarkup(st,k); });
+  res.solutions.slice(1,4).forEach((o,i)=>{ const st=o.perPose[0];
+    s+=`<circle cx="${st.x.toFixed(1)}" cy="${(-st.y).toFixed(1)}" r="9" style="fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:3 3"/><text x="${(st.x+12).toFixed(1)}" y="${(-st.y-8).toFixed(1)}" class="txt m" style="font-size:14px">solution ${i+2}</text>`; });
+  if(truth) s+=`<path d="M${truth.x-8},${-truth.y-8} L${truth.x+8},${-truth.y+8} M${truth.x+8},${-truth.y-8} L${truth.x-8},${-truth.y+8}" style="stroke:var(--fg);stroke-width:2.5"/>`;
+  $('dyn').innerHTML=s;
+}
+
+// ---------- Mise à jour globale ----------
+let queued=false;
+function schedule(){ if(queued) return; queued=true; requestAnimationFrame(()=>{queued=false; update();}); }
+function update(){
+  if(!latticeReady) return;
+  const {poses,sigDeg}=readInputs(), sig=rad(sigDeg);
+  lastPoses=poses; lastSig=sig;
+  const res=poses.length>=2?solve(poses,sig):{solutions:[]};
+  const best=res.solutions[0];
+  const clouds=best?cloudsFor(regionAround(best,poses,sig),poses):[];
+  renderResult(res,poses,sigDeg);
+  drawPlot(res,poses,sig);
+  renderRobot(res,clouds);
+}
+
+// ---------- Simulation d'un essai ----------
+function randn(){return Math.sqrt(-2*Math.log(1-Math.random()))*Math.cos(2*Math.PI*Math.random());}
+function doSimulate(){
+  const x1=parseFloat($('sx').value), y1=parseFloat($('sy').value), msg=$('simmsg');
+  const s=poseToState(x1,y1,0);
+  if(!s){ msg.textContent="Pas d'équilibre statique à cette position vraie."; msg.className='note bad'; return; }
+  const noise=$('noise').checked, sd=Math.max(0.01,num('sig')||0.3);
+  const setTh=(id,th)=>{ $(id).value=(deg(th)+(noise?sd*randn():0)).toFixed(2); };
+  setTh('th1',s.theta);
+  const t2=lengthsToState(s.L1+num0('d1_2'),s.L2+num0('d2_2'),0);
+  if(!t2){ msg.textContent="Pas d'équilibre pour la pose 2 (ΔL trop grands)."; msg.className='note bad'; return; }
+  setTh('th2',t2.theta);
+  if($('use3').checked){
+    const t3=lengthsToState(s.L1+num0('d1_3'),s.L2+num0('d2_3'),0);
+    if(!t3){ msg.textContent="Pas d'équilibre pour la pose 3 (ΔL trop grands)."; msg.className='note bad'; return; }
+    setTh('th3',t3.theta);
+  }
+  truth={a:s.L1,b:s.L2,x:x1,y:y1};
+  msg.textContent=`θ générés (${noise?'avec bruit':'sans bruit'}). Vérité : L₁ = ${fmt(s.L1)} mm, L₂ = ${fmt(s.L2)} mm.`; msg.className='note';
+  schedule();
+}
+
+// ---------- Événements ----------
+for(const id of ['th1','d1_2','d2_2','th2','d1_3','d2_3','th3'])
+  $(id).addEventListener('input',()=>{ truth=null; schedule(); });
+$('sig').addEventListener('input',schedule);
+$('view').addEventListener('change',schedule);
+$('use3').addEventListener('change',()=>{
+  for(const id of ['d1_3','d2_3','th3']) $(id).disabled=!$('use3').checked;
+  if($('use3').checked && !$('d2_3').value && !$('d1_3').value){ $('d1_3').value=0; $('d2_3').value=150; }
+  schedule();
+});
+$('sim').addEventListener('click',doSimulate);
+$('clear').addEventListener('click',()=>{ for(const id of ['th1','d1_2','d2_2','th2','d1_3','d2_3','th3']) $(id).value=''; truth=null; $('simmsg').className='note'; schedule(); });
+if(window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',schedule);
+new MutationObserver(schedule).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+window.addEventListener('resize',schedule);
+
+// ---------- Démarrage : table d'équilibre par petits blocs ----------
+(function boot(){
+  let i=0;
+  $('d1_2').value=200; $('d2_2').value=0;
+  function step(){
+    const t0=performance.now();
+    while(i<N && performance.now()-t0<30){ latticeRow(i); i++; }
+    $('boot').textContent="Calcul de la table d'équilibre… "+Math.round(100*i/N)+" %";
+    if(i<N) setTimeout(step,0);
+    else { latticeReady=true; $('boot').textContent=''; doSimulate(); }
+  }
+  setTimeout(step,20);
+})();
+</script>
+</body>
+</html>
